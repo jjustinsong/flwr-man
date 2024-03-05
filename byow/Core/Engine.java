@@ -1,0 +1,1103 @@
+package byow.Core;
+
+import byow.InputDemo.InputSource;
+import byow.InputDemo.KeyboardInputSource;
+import byow.InputDemo.StringInputDevice;
+import byow.TileEngine.TERenderer;
+import byow.TileEngine.TETile;
+import byow.TileEngine.Tileset;
+import edu.princeton.cs.algs4.*;
+
+import java.awt.*;
+import java.io.*;
+import java.util.*;
+import java.util.List;
+
+public class Engine {
+    TERenderer ter = new TERenderer();
+    private TETile[][] tempWorld;
+    private TETile[][] world;
+    private Random ra;
+    /* Feel free to change the width and height. */
+    public static final int WIDTH = 80;
+    public static final int HEIGHT = 30;
+    private int roomNum = 0;
+    private HashSet<String> walls = new HashSet<>();
+    private HashSet<String> cases;
+    private ArrayList<Node> rooms = new ArrayList<>();
+    private HashSet<Node> visited = new HashSet<>();
+    private HashSet<Node> collection = new HashSet<>();
+    private int halls = 0;
+    private ArrayList<String> perimeter;
+    private ArrayList<Node> sortedRooms = new ArrayList<>();
+    private Node N;
+    private boolean overLap = false;
+    private ArrayList<Node> roomConnects = new ArrayList<>();
+    private WeightedQuickUnionUF wf;
+    private int firstRoom;
+    private int lastRoom;
+    private int[] avatarCo = new int[2];
+    private int[] avatarBfr = new int[2]; //Before portal
+    private int[] portalAvatar = new int[2];
+    private String seed = "";
+    private int portalCount = 5;
+    boolean inPortalWorld = false;
+    private int flowerCount = 0;
+    private List<String> portalCoordinates = new ArrayList<>();
+    private List<String> portalCoordinates2 = new ArrayList<>();
+    boolean load = false;
+    private List<String> flowerCoordinates = new ArrayList<>();
+    private List<String> flowerCoordinates2 = new ArrayList<>();
+    private TETile avatar = Tileset.AVATAR;
+    private int[] prevCoordinate = new int[2];
+    private int[] portalCo = new int[2];
+
+    public Engine() {
+
+    }
+
+    private class Node {
+        private ArrayList<String> coordList;
+        private HashSet<Node> connects;
+        private int index;
+        private int height;
+        private int width;
+        private int startX;
+        private int startY;
+
+        private Node(int c) {
+            this.index = c;
+            this.coordList = new ArrayList<>();
+            this.connects = new HashSet<>();
+            this.connects.add(this);
+        }
+
+    }
+
+    public void roomSearch() {
+        int rm = ra.nextInt(30, 40);
+        wf = new WeightedQuickUnionUF(rm + 2);
+        firstRoom = (rm + 2) - 2;
+        lastRoom = (rm + 2) - 1;
+        while (roomNum < rm) {
+            for (int i = 0; i < rm; i += 1) {
+                if (roomNum == rm) {
+                    break;
+                }
+                overLap = false;
+                int x = ra.nextInt(1, WIDTH - 8);
+                int y = ra.nextInt(1, HEIGHT - 8);
+                addFloor(x, y, ra.nextInt(2, 7), ra.nextInt(2, 7));
+            }
+        }
+    }
+
+    public void addFloor(int w, int h, int width, int height) {
+        ArrayList<String> ls = new ArrayList<>();
+        cases = new HashSet<>(); // Set of the rooms walls
+        perimeter = new ArrayList<>(); // List of rooms sides
+        for (int x = 0; x < width; x += 1) {
+            if (overLap) {
+                break;
+            }
+            for (int y = 0; y < height; y += 1) {
+                if (walls.contains(coordinate(x + w, y + h))
+                        || walls.contains(coordinate(x + w + 1, y + h + 1))
+                        || walls.contains(coordinate(x + w - 1, y + h - 1))) {
+                    overLap = true;
+                    deleteRoom(ls);
+                    ls.removeAll(ls);
+                    cases.clear();
+                    perimeter.clear();
+                    break;
+                }
+                world[x + w][y + h] = Tileset.FLOOR;
+                ls.add(coordinate(x + w, y + h));
+                addWall(x, y, x + w, y + h, width, height);
+            }
+
+        }
+        checkWall(ls);
+        if (!ls.isEmpty()) { // Makes room Node if it doesn't overlap
+            makeNode(width, height, perimeter);
+        }
+    }
+
+
+    public void addWall(int x, int y, int w, int h, int width, int height) {
+        if (x == 0) {
+            cases.add(coordinate(x - 1, y));
+            perimeter.add(coordinate(w, h));
+        }
+        if (x == width - 1) {
+            cases.add(coordinate(x + 1, y));
+            perimeter.add(coordinate(w, h));
+        }
+        if (y == 0) {
+            cases.add(coordinate(x, y - 1));
+            perimeter.add(coordinate(w, h));
+        }
+        if (y == height - 1) {
+            cases.add(coordinate(x, y + 1));
+            perimeter.add(coordinate(w, h));
+        }
+    }
+
+    public void makeNode(int width, int height, ArrayList<String> ls) {
+        N = new Node(roomNum);
+        roomNum += 1;
+        N.coordList.addAll(ls);
+        N.width = width;
+        N.height = height;
+        N.startX = deString(ls.get(0), 0);
+        N.startY = deString(ls.get(0), 1);
+        rooms.add(N);
+    }
+
+    public void createHallway(int x, int y, int horizDist, int vertDist) {
+        int kp = 0;
+        for (int i = 0; i < Math.abs(horizDist); i++) {
+            // Specifies to build walls leaving center of rooms unfilled
+            world[x + i][y] = Tileset.FLOOR;
+            kp = i;
+        }
+        for (int i = 0; i < Math.abs(vertDist); i++) {
+            if (vertDist < 0) {
+                world[x + horizDist][y - i] = Tileset.FLOOR;
+            } else {
+                world[x + horizDist][y + i] = Tileset.FLOOR;
+            }
+        }
+        halls += 1;
+    }
+
+    // Delete room that overlaps
+    public void deleteRoom(ArrayList<String> ls) {
+        String[] dl;
+        for (String s: ls) {
+            dl = s.split(",");
+            world[Integer.parseInt(dl[0])][Integer.parseInt(dl[1])] = Tileset.NOTHING;
+        }
+    }
+
+    // Adds rooms wall coordinates to walls set
+    public void checkWall(ArrayList<String> ls) {
+        if (!ls.isEmpty()) {
+            walls.addAll(ls);
+            walls.addAll(cases);
+        }
+    }
+
+    // Takes in wall coordinates and turns them into
+    // a string to be inserted into Walls set
+    public String coordinate(int x, int y) {
+        String s = "";
+        s += x + "," + y;
+        return s;
+    }
+
+    // Takes coordinate string and returns the x or y
+    // coordinate as an int. index = 0 for x, index = 1 for y
+    public Integer deString(String s, int index) {
+        return Integer.parseInt(s.split(",")[index]);
+    }
+
+    // Make Hallway between two Rooms
+    public void hallway(Node n, Node m) {
+        if (n.equals(m)) {
+            halls = halls;
+        } else {
+            wf.union(sortedRooms.indexOf(n), sortedRooms.indexOf(m));
+            String roomCoordinate = n.coordList.get(ra.nextInt(0, n.coordList.size()));
+            String[] curr = roomCoordinate.split(",");
+            String[] near = nearestRoom(roomCoordinate, m.coordList).split(",");
+            int currX = Integer.parseInt(curr[0]);
+            int currY = Integer.parseInt(curr[1]);
+            int nearX = Integer.parseInt(near[0]);
+            int nearY = Integer.parseInt(near[1]);
+            if (currX > nearX && currY > nearY) {
+                int horizDist = horizontalDistance(nearestRoom
+                        (roomCoordinate, m.coordList), roomCoordinate);
+                int vertDist = verticalDistance(nearestRoom
+                        (roomCoordinate, m.coordList), roomCoordinate);
+                createHallway(nearX, nearY, horizDist, vertDist);
+            } else if (nearX > currX && currY > nearY) {
+                int horizDist = horizontalDistance(nearestRoom
+                        (roomCoordinate, m.coordList), roomCoordinate);
+                int vertDist = verticalDistance(nearestRoom
+                        (roomCoordinate, m.coordList), roomCoordinate);
+                createHallway(currX, currY, horizDist, vertDist * -1);
+            } else if (currX > nearX && nearY > currY) {
+                int horizDist = horizontalDistance(nearestRoom
+                        (roomCoordinate, m.coordList), roomCoordinate);
+                int vertDist = verticalDistance(nearestRoom
+                        (roomCoordinate, m.coordList), roomCoordinate);
+                createHallway(nearX, nearY, horizDist, vertDist * -1);
+            } else if (nearX > currX && nearY > currY) {
+                int horizDist = horizontalDistance(nearestRoom
+                        (roomCoordinate, m.coordList), roomCoordinate);
+                int vertDist = verticalDistance(nearestRoom
+                        (roomCoordinate, m.coordList), roomCoordinate);
+                createHallway(currX, currY, horizDist, vertDist);
+            } else if (nearX == currX && nearY > currY) {
+                int horizDist = horizontalDistance(nearestRoom
+                        (roomCoordinate, m.coordList), roomCoordinate);
+                int vertDist = verticalDistance(nearestRoom
+                        (roomCoordinate, m.coordList), roomCoordinate);
+                createHallway(currX, currY, horizDist, vertDist);
+            } else if (nearX == currX && currY > nearY) {
+                int horizDist = horizontalDistance(nearestRoom
+                        (roomCoordinate, m.coordList), roomCoordinate);
+                int vertDist = verticalDistance(nearestRoom
+                        (roomCoordinate, m.coordList), roomCoordinate);
+                createHallway(nearX, nearY, horizDist, vertDist);
+            } else if (nearX > currX && nearY == currY) {
+                int horizDist = horizontalDistance(nearestRoom
+                        (roomCoordinate, m.coordList), roomCoordinate);
+                int vertDist = verticalDistance(nearestRoom
+                        (roomCoordinate, m.coordList), roomCoordinate);
+                createHallway(currX, currY, horizDist, vertDist);
+            } else if (currX > nearX && currY == nearY) {
+                int horizDist = horizontalDistance(nearestRoom
+                        (roomCoordinate, m.coordList), roomCoordinate);
+                int vertDist = verticalDistance(nearestRoom
+                        (roomCoordinate, m.coordList), roomCoordinate);
+                createHallway(nearX, nearY, horizDist, vertDist);
+            }
+        }
+    }
+
+    // Finds the nearest room from r
+    public Node nearestRoom1(Node r) {
+        visited.add(r);
+
+        ArrayList<String> temp = new ArrayList<>();
+        for (Node n : sortedRooms) {
+            // Checks if r is already connected to the room n
+            // and if n already is connected to two rooms
+            if (!r.connects.contains(n) && n.connects.size() < 4) {
+                temp.add(coordinate(n.startX, n.startY));
+            }
+        }
+
+        String[] co = coordinate(r.startX, r.startY).split(",");
+        String[] nearest = null;
+        int distTo = -1;
+        for (String roomCoordinate : temp) {
+            String[] current = roomCoordinate.split(",");
+            if (Arrays.equals(current, co)) {
+                ;
+            } else if (distTo == -1 || Math.abs(Integer.parseInt(current[0])
+                    - Integer.parseInt(co[0]))  + Math.abs(
+                    Integer.parseInt(current[1]) - Integer.parseInt(co[1])) < distTo) {
+                distTo = Math.abs(Integer.parseInt(current[0]) - Integer.parseInt(co[0]))
+                        + Math.abs(Integer.parseInt(
+                        current[1]) - Integer.parseInt(co[1]));
+                nearest = current;
+            }
+        }
+        if (nearest == null) {
+            return r;
+        }
+        visited.add(getNode(nearest));
+        r.connects.add(getNode(nearest));
+        getNode(nearest).connects.add(r);
+        return getNode(nearest);
+    }
+
+    // Finds the closest coordinate to connect to
+    // in the nearest room.
+    public String nearestRoom(String coordinate, ArrayList<String> ls) {
+        String[] co = coordinate.split(",");
+        String nearest = null;
+        int distTo = -1;
+        for (String roomCoordinate : ls) {
+            String[] current = roomCoordinate.split(",");
+            if (Arrays.equals(current, co)) {
+                ;
+            } else if (distTo == -1 || Math.abs(Integer.parseInt(co[0])
+                    - Integer.parseInt(current[0])) + Math.abs(
+                    Integer.parseInt(co[1]) - Integer.parseInt(current[1])) < distTo) {
+                distTo = Math.abs(Integer.parseInt(co[0]) - Integer.parseInt(current[0]))
+                        + Math.abs(Integer.parseInt(
+                        co[1]) - Integer.parseInt(current[1]));
+                nearest = roomCoordinate;
+            }
+        }
+        return nearest;
+    }
+
+    // Uses coordinate to find correct room Node
+    public Node getNode(String[] s) {
+        for (Node r: rooms) {
+            if (r.startX == Integer.parseInt(s[0])
+                    && r.startY == Integer.parseInt(s[1])) {
+                return r;
+            }
+        }
+        return null;
+    }
+
+    // Adds rooms to sortedRooms list in order
+    // of starting x coordinates, so the rooms can be
+    // connected by hallways from left to right
+    public void sortRooms() {
+        ArrayList<Integer> l = new ArrayList<>();
+        int ch = 1000;
+        for (Node r: rooms) {
+            l.add(r.startX);
+        }
+        l.sort(Comparator.naturalOrder());
+        for (int i: l) {
+            for (Node r: rooms) {
+                if (i == r.startX && !sortedRooms.contains(r)) {
+                    sortedRooms.add(r);
+                }
+            }
+        }
+        wf.union(firstRoom, 0);
+        wf.union(lastRoom, sortedRooms.size() - 1);
+    }
+
+    public int horizontalDistance(String coordinate, String coordinate2) {
+        String[] co = coordinate.split(",");
+        String[] co2 = coordinate2.split(",");
+        return Math.abs(Integer.parseInt(co[0]) - Integer.parseInt(co2[0]));
+    }
+
+    public int verticalDistance(String coordinate, String coordinate2) {
+        String[] co = coordinate.split(",");
+        String[] co2 = coordinate2.split(",");
+        return Math.abs(Integer.parseInt(co[1]) - Integer.parseInt(co2[1]));
+    }
+
+    public void checkAllConnected() {
+        if (!wf.connected(firstRoom, lastRoom)) {
+            for (Node n: sortedRooms) {
+                if (!wf.connected(firstRoom, sortedRooms.indexOf(n))) {
+                    int in = sortedRooms.indexOf(n) - 1;
+                    hallway(sortedRooms.get(in), n);
+                }
+            }
+        }
+    }
+
+    public void buildWalls() {
+        for (int x = 0; x < WIDTH; x += 1) {
+            for (int y = 0; y < HEIGHT; y += 1) {
+                if (world[x][y] == Tileset.FLOOR) {
+                    surrounded(x, y);
+                }
+            }
+        }
+    }
+
+    public void surrounded(int x, int y) {
+        if (world[x + 1][y] == Tileset.NOTHING) {
+            world[x + 1][y] = Tileset.WALL;
+        }
+        if (world[x][y + 1] == Tileset.NOTHING) {
+            world[x][y + 1] = Tileset.WALL;
+        }
+        if (world[x + 1][y + 1] == Tileset.NOTHING) {
+            world[x + 1][y + 1] = Tileset.WALL;
+        }
+        if (world[x - 1][y] == Tileset.NOTHING) {
+            world[x - 1][y] = Tileset.WALL;
+        }
+        if (world[x][y - 1] == Tileset.NOTHING) {
+            world[x][y - 1] = Tileset.WALL;
+        }
+        if (world[x - 1][y - 1] == Tileset.NOTHING) {
+            world[x - 1][y - 1] = Tileset.WALL;
+        }
+        if (world[x + 1][y - 1] == Tileset.NOTHING) {
+            world[x + 1][y - 1] = Tileset.WALL;
+        }
+        if (world[x - 1][y + 1] == Tileset.NOTHING) {
+            world[x - 1][y + 1] = Tileset.WALL;
+        }
+
+    }
+    public void drawStartMenu() {
+        StdDraw.setCanvasSize(WIDTH * 10, HEIGHT * 25);
+        StdDraw.setXscale(0, WIDTH);
+        StdDraw.setYscale(0, HEIGHT);
+        StdDraw.clear(Color.BLACK);
+        StdDraw.enableDoubleBuffering();
+        StdDraw.clear(Color.BLACK);
+        StdDraw.setPenColor(Color.WHITE);
+
+        StdDraw.setFont(new Font("Monaco", Font.BOLD, 50));
+        StdDraw.text((double) WIDTH/2, (double) HEIGHT - 10, "CS61B: THE GAME");
+
+        StdDraw.setFont(new Font("Monaco", Font.BOLD, 30));
+        StdDraw.text((double) WIDTH/2, (double) HEIGHT * 5 / 10, "New Game (N)");
+        StdDraw.text((double) WIDTH/2, (double) HEIGHT * 4 / 10, "Change Avatar (C)");
+        StdDraw.text((double) WIDTH/2, (double) HEIGHT * 3 / 10, "Load Game (L)");
+        StdDraw.text((double) WIDTH/2, (double) HEIGHT * 2 / 10, "Quit (Q)");
+
+        StdDraw.show();
+    }
+
+    public void drawSeedMenu() {
+        StdDraw.setXscale(0, WIDTH);
+        StdDraw.setYscale(0, HEIGHT);
+        StdDraw.clear(Color.BLACK);
+        StdDraw.enableDoubleBuffering();
+        StdDraw.clear(Color.BLACK);
+        StdDraw.setPenColor(Color.WHITE);
+
+        StdDraw.setFont(new Font("Monaco", Font.BOLD, 30));
+        StdDraw.text((double) WIDTH/2, (double) HEIGHT * 7 / 10, "Enter seed and press 'S' to confirm");
+
+        StdDraw.show();
+    }
+
+    public void drawAvatarSelection() {
+        StdDraw.clear(Color.BLACK);
+        StdDraw.enableDoubleBuffering();
+        StdDraw.clear(Color.BLACK);
+        StdDraw.setPenColor(Color.WHITE);
+
+        StdDraw.setFont(new Font("Monaco", Font.BOLD, 30));
+        StdDraw.text((double) WIDTH/2, (double) HEIGHT * 7 / 10, "Select avatar");
+        StdDraw.text((double) WIDTH/3, (double) HEIGHT * 5 / 10, "@ (1)");
+        StdDraw.text((double) WIDTH/2, (double) HEIGHT * 5 / 10, "♀ (2)");
+        StdDraw.text((double) WIDTH*2/3, (double) HEIGHT * 5 / 10, "♂ (3)");
+        StdDraw.text((double) WIDTH*5/12, (double) HEIGHT * 4 / 10, "☻ (4)");
+        StdDraw.text((double) WIDTH*7/12, (double) HEIGHT * 4 / 10, "ツ (5)");
+
+        StdDraw.show();
+    }
+
+    public void drawFrame(String s) {
+        StdDraw.clear(Color.BLACK);
+        StdDraw.setPenColor(Color.WHITE);
+        StdDraw.setFont(new Font("Monaco", Font.BOLD, 30));
+        StdDraw.text((double) WIDTH/2, (double) HEIGHT * 7 / 10, "Enter seed and press 'S' to confirm");
+        StdDraw.text((double) WIDTH/2, (double) HEIGHT/2, s);
+        StdDraw.show();
+    }
+
+    public void drawHUD(String coordinate, TETile[][] world) {
+        String[] co = coordinate.split(",");
+        StdDraw.setPenColor(Color.WHITE);
+        StdDraw.setFont(new Font("Monaco", Font.BOLD, 10));
+        StdDraw.line(0, HEIGHT - 2, WIDTH, HEIGHT - 2);
+        StdDraw.textLeft(0, HEIGHT - 1, world[Integer.parseInt(co[0])][Integer.parseInt(co[1])].description());
+        StdDraw.show();
+    }
+
+    public void drawPortalScreen() {
+        StdDraw.clear(Color.BLACK);
+        StdDraw.setPenColor(Color.WHITE);
+        StdDraw.setFont(new Font("Monaco", Font.BOLD, 30));
+        StdDraw.text((double) WIDTH/2, (double) HEIGHT/2, "You entered a portal!");
+        StdDraw.text((double) WIDTH/2, (double) HEIGHT*4/10, "Collect all flowers to go back!");
+        StdDraw.show();
+        StdDraw.pause(2000);
+    }
+
+    public void drawGoingBackScreen() {
+        StdDraw.clear(Color.BLACK);
+        StdDraw.setPenColor(Color.WHITE);
+        StdDraw.setFont(new Font("Monaco", Font.BOLD, 30));
+        StdDraw.text((double) WIDTH/2, (double) HEIGHT/2, "Teleporting...");
+        StdDraw.show();
+        StdDraw.pause(2000);
+    }
+
+    public void drawEndGame() {
+        StdDraw.setCanvasSize(WIDTH * 10, HEIGHT * 25);
+        StdDraw.setXscale(0, WIDTH);
+        StdDraw.setYscale(0, HEIGHT);
+        StdDraw.clear(Color.BLACK);
+        StdDraw.enableDoubleBuffering();
+        StdDraw.clear(Color.BLACK);
+        StdDraw.setPenColor(Color.WHITE);
+
+        StdDraw.setFont(new Font("Monaco", Font.BOLD, 50));
+        StdDraw.text((double) WIDTH/2, (double) HEIGHT - 10, "CONGRATULATIONS");
+
+        StdDraw.setFont(new Font("Monaco", Font.BOLD, 30));
+        StdDraw.text((double) WIDTH/2, (double) HEIGHT * 5 / 10, "You completed the game!");
+        StdDraw.text((double) WIDTH/2, (double) HEIGHT * 4 / 10, "Back to Main Menu (B)");
+
+        StdDraw.show();
+    }
+
+    public TETile[][] getTiles() {
+        return world;
+    }
+
+    public String mouseCoordinate() {
+        int x = (int) StdDraw.mouseX();
+        int y = (int) StdDraw.mouseY();
+        return x + "," + y;
+    }
+
+    public void generateWorld() {
+        world = new TETile[WIDTH][HEIGHT];
+        for (int i = 0; i < WIDTH; i++) {
+            for (int j = 0; j < HEIGHT; j++) {
+                world[i][j] = Tileset.NOTHING;
+            }
+        }
+        roomSearch();
+        sortRooms();
+        for (Node r: sortedRooms) {
+            hallway(r, nearestRoom1(r));
+            String s = sortedRooms.indexOf(r) + " " + sortedRooms.indexOf(nearestRoom1(r));
+            System.out.println(s);
+            System.out.println(wf.connected(firstRoom, lastRoom));
+        }
+        checkAllConnected();
+        buildWalls();
+        System.out.println(roomNum);
+        System.out.println(rooms.size());
+    }
+
+
+    public void generatePortals(int numPortals) {
+        int count = 0;
+        if (load) {
+            for (String s : portalCoordinates) {
+                if (!portalCoordinates2.contains(s)) {
+                    String[] co = s.split(",");
+                    world[Integer.parseInt(co[0])][Integer.parseInt(co[1])] = Tileset.UNLOCKED_DOOR;
+                }
+            }
+        } else {
+            while (count != numPortals) {
+                int x = ra.nextInt(WIDTH);
+                int y = ra.nextInt(HEIGHT);
+                if (world[x][y].equals(Tileset.FLOOR)) {
+                    world[x][y] = Tileset.UNLOCKED_DOOR;
+                    portalCoordinates.add(x + "," + y);
+                    count++;
+                }
+            }
+        }
+    }
+
+    public void generateFlowers(int numFlowers) {
+        int count = 0;
+        if (load) {
+            int fln =0;
+            for (String s : flowerCoordinates) {
+                if (fln == numFlowers) {
+                    break;
+                }
+                if (!flowerCoordinates2.contains(s)) {
+                    if (!s.equals("")) {
+                        String[] co = s.split(",");
+                        tempWorld[Integer.parseInt(co[0])][Integer.parseInt(co[1])] = Tileset.FLOWER;
+                        fln += 1;
+                    }
+                }
+            }
+        } else {
+            while (count != numFlowers) {
+                int x = ra.nextInt(WIDTH/3 + 3, WIDTH*2/3 - 3);
+                int y = ra.nextInt(HEIGHT/3 + 3, HEIGHT*2/3 - 3);
+                if (x == WIDTH / 2 || y == HEIGHT / 2) {
+                    String yr = "pass";
+                } else if (tempWorld[x][y].equals(Tileset.GRASS)) {
+                    tempWorld[x][y] = Tileset.FLOWER;
+                    flowerCoordinates.add(x + "," + y);
+                    count++;
+                }
+            }
+        }
+    }
+
+
+
+    public void moveAvatar(TETile[][] w, int x, int y, int[] coordinate) {
+        if (w[x][y].equals(Tileset.FLOOR)) {
+            w[coordinate[0]][coordinate[1]] = Tileset.FLOOR;
+            w[x][y] = avatar;
+            coordinate[0] = x;
+            coordinate[1] = y;
+        }
+        if (w[x][y].equals(Tileset.UNLOCKED_DOOR)) {
+            portalCoordinates2.add(x + "," + y);
+            prevCoordinate[0] = coordinate[0];
+            prevCoordinate[1] = coordinate[1];
+            portalCo[0] = x;
+            portalCo[1] = y;
+            drawPortalScreen();
+            flowerCount = 7;
+            portalWorld();
+            inPortalWorld = true;
+            w[coordinate[0]][coordinate[1]] = Tileset.FLOOR;
+            w[x][y] = avatar;
+        }
+        if (w[x][y].equals(Tileset.GRASS)) {
+            w[coordinate[0]][coordinate[1]] = Tileset.GRASS;
+            w[x][y] = avatar;
+            coordinate[0] = x;
+            coordinate[1] = y;
+        }
+        if (w[x][y].equals(Tileset.FLOWER)) {
+            flowerCoordinates2.add(x + "," + y);
+            w[coordinate[0]][coordinate[1]] = Tileset.GRASS;
+            w[x][y] = avatar;
+            coordinate[0] = x;
+            coordinate[1] = y;
+            flowerCount--;
+        }
+    }
+
+    public void portalWorld() {
+        tempWorld = new TETile[WIDTH][HEIGHT];
+        for (int i = 0; i < WIDTH; i++) {
+            for (int j = 0; j < HEIGHT; j++) {
+                tempWorld[i][j] = Tileset.WATER;
+                if (j == HEIGHT - 2 || j == HEIGHT - 1) {
+                    tempWorld[i][j] = Tileset.NOTHING;
+                }
+            }
+        }
+        for (int i = WIDTH/3; i < WIDTH*2/3; i++) {
+            for (int j = HEIGHT/3; j < HEIGHT*2/3; j++) {
+                tempWorld[i][j] = Tileset.GRASS;
+                if (i == WIDTH/3 || i == WIDTH*2/3 - 1 || j == HEIGHT/3 || j == HEIGHT*2/3 - 1) {
+                    tempWorld[i][j] = Tileset.TREE;
+                }
+            }
+        }
+        generateFlowers(flowerCount);
+        if (!load) {
+            tempWorld[WIDTH/2][HEIGHT/2] = avatar;
+            portalAvatar[0] = WIDTH/2;
+            portalAvatar[1] = HEIGHT/2;
+        }
+        StdDraw.setCanvasSize(WIDTH * 13, HEIGHT * 15);
+        StdDraw.setXscale(0, WIDTH);
+        StdDraw.setYscale(0, HEIGHT);
+        ter.renderFrame(tempWorld);
+    }
+
+    public void saveGame() {
+        try {
+            BufferedWriter bw = new BufferedWriter(new FileWriter("game.txt"));
+            bw.flush();
+            bw.write(String.valueOf(true));
+            bw.newLine();
+            bw.write(String.valueOf(inPortalWorld));
+            bw.newLine();
+            bw.write(seed);
+            bw.newLine();
+            bw.write(avatar.character());
+            bw.newLine();
+            bw.write(""+avatarCo[0]);
+            bw.newLine();
+            bw.write(""+avatarCo[1]);
+            bw.newLine();
+            bw.write(""+portalAvatar[0]);
+            bw.newLine();
+            bw.write(""+portalAvatar[1]);
+            bw.newLine();
+            bw.write(""+flowerCount);
+            bw.newLine();
+            bw.write(""+portalCount);
+            bw.newLine();
+            bw.write(""+prevCoordinate[0]);
+            bw.newLine();
+            bw.write(""+prevCoordinate[1]);
+            bw.newLine();
+            bw.write(""+portalCo[0]);
+            bw.newLine();
+            bw.write(""+portalCo[1]);
+            if (portalCoordinates.size() > 0) {
+                for (String s : portalCoordinates) {
+                    if (s != null) {
+                        bw.newLine();
+                        bw.write(s);
+                    }
+                }
+            }
+            for (String s : portalCoordinates2) {
+                if (s != null) {
+                    bw.newLine();
+                    bw.write(s);
+                }
+            }
+            if (flowerCoordinates.size() > 0) {
+                for (String s : flowerCoordinates) {
+                    if (s != null) {
+                        bw.newLine();
+                        bw.write(s);
+                    }
+                }
+            }
+            for (String s : flowerCoordinates2) {
+                if (s != null) {
+                    bw.newLine();
+                    bw.write(s);
+                }
+            }
+            bw.close();
+        } catch(Exception e) {
+            throw new RuntimeException(e);
+        }
+        resetGame();
+    }
+
+    public void loadGame() {
+        try {
+            BufferedReader br = new BufferedReader(new FileReader("game.txt"));
+            load = Boolean.parseBoolean(br.readLine());
+            inPortalWorld = Boolean.parseBoolean(br.readLine());
+            seed = br.readLine();
+            String x = br.readLine();
+            if (x.equals("@")) {
+                avatar = Tileset.AVATAR;
+            } else if (x.equals("♀")) {
+                avatar = Tileset.AVATAR2;
+            } else if (x.equals("♂")) {
+                avatar = Tileset.AVATAR3;
+            } else if (x.equals("☻")) {
+                avatar = Tileset.AVATAR4;
+            } else if (x.equals("ツ")) {
+                avatar = Tileset.AVATAR5;
+            }
+            avatarCo[0] = Integer.parseInt(br.readLine());
+            avatarCo[1] = Integer.parseInt(br.readLine());
+            portalAvatar[0] = Integer.parseInt(br.readLine());
+            portalAvatar[1] = Integer.parseInt(br.readLine());
+            flowerCount = Integer.parseInt(br.readLine());
+            portalCount = Integer.parseInt(br.readLine());
+            prevCoordinate[0] = Integer.parseInt(br.readLine());
+            prevCoordinate[1] = Integer.parseInt(br.readLine());
+            portalCo[0] = Integer.parseInt(br.readLine());
+            portalCo[1] = Integer.parseInt(br.readLine());
+            for (int i = 0; i < 5; i++) {
+                portalCoordinates.add(br.readLine());
+            }
+            for (int i = 0; i < 5 - portalCount; i++) {
+                portalCoordinates2.add(br.readLine());
+            }
+            for (int i = 0; i < 7; i++) {
+                flowerCoordinates.add(br.readLine());
+            }
+            for (int i = 0; i < 7 - flowerCount; i++) {
+                flowerCoordinates2.add(br.readLine());
+            }
+            br.close();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public void resetGame() {
+        roomNum = 0;
+        rooms.clear();
+        sortedRooms.clear();
+        walls.clear();
+        visited.clear();
+        portalCount = 5;
+        portalCoordinates.clear();
+        portalCoordinates2.clear();
+//        flowerCount = 0;
+//        flowerCoordinates.clear();
+//        flowerCoordinates2.clear();
+
+    }
+
+    /**
+     * Method used for exploring a fresh world. This method should handle all inputs,
+     * including inputs from the main menu.
+     */
+    public void interactWithKeyboard() {
+        InputSource is = new KeyboardInputSource();
+        TERenderer ter = new TERenderer();
+        ter.initialize(WIDTH, HEIGHT);
+        drawStartMenu();
+        while (!is.possibleNextInput()) {
+            ter.renderFrame(getTiles());
+            drawHUD(mouseCoordinate(), getTiles());
+        }
+        while (is.possibleNextInput()) {
+            char p = is.getNextKey();
+            outerloop:
+            if (p == 'n' || p == 'N') {
+                portalCount = 5;
+                seed = "";
+                drawSeedMenu();
+                boolean stop = false;
+                while (!stop) {
+                    char temp = is.getNextKey();
+                    if (temp == 's' || temp == 'S') {
+                        stop = true;
+                    } else {
+                        seed += temp;
+                        drawFrame(seed);
+                    }
+                }
+                StdDraw.setCanvasSize(WIDTH * 13, HEIGHT * 15);
+                StdDraw.setXscale(0, WIDTH);
+                StdDraw.setYscale(0, HEIGHT);
+                ra = new Random(Long.parseLong(seed));
+                generateWorld();
+                generatePortals(portalCount);
+                boolean avatarPresent = false;
+                while (!avatarPresent) {
+                    int x = ra.nextInt(WIDTH);
+                    int y = ra.nextInt(HEIGHT);
+                    if (world[x][y].equals(Tileset.FLOOR)) {
+                        world[x][y] = avatar;
+                        avatarCo[0] = x;
+                        avatarCo[1] = y;
+                        avatarPresent = true;
+                    }
+                }
+                while (!StdDraw.hasNextKeyTyped()) {
+                    ter.renderFrame(getTiles());
+                    drawHUD(mouseCoordinate(), getTiles());
+                }
+            } else if (p == 'c' || p == 'C') {
+                drawAvatarSelection();
+                char c = is.getNextKey();
+                if (c == '1') {
+                    avatar = Tileset.AVATAR;
+                } else if (c == '2') {
+                    avatar = Tileset.AVATAR2;
+                } else if (c == '3') {
+                    avatar = Tileset.AVATAR3;
+                } else if (c == '4') {
+                    avatar = Tileset.AVATAR4;
+                } else if (c == '5') {
+                    avatar = Tileset.AVATAR5;
+                }
+                drawStartMenu();
+            } else if (p == 'q' || p == 'Q') {
+                System.exit(0);
+            } else if (p == 'l' || p == 'L') {
+                loadGame();
+                StdDraw.setCanvasSize(WIDTH * 13, HEIGHT * 15);
+                StdDraw.setXscale(0, WIDTH);
+                StdDraw.setYscale(0, HEIGHT);
+                ra = new Random(Long.parseLong(seed));
+                generateWorld();
+                generatePortals(portalCount);
+                load = false;
+                if (inPortalWorld) {
+                    world[prevCoordinate[0]][prevCoordinate[1]] = avatar;
+                }
+                world[avatarCo[0]][avatarCo[1]] = avatar;
+                while (!StdDraw.hasNextKeyTyped() && !inPortalWorld) {
+                    ter.renderFrame(getTiles());
+                    drawHUD(mouseCoordinate(), getTiles());
+                }
+                while (!StdDraw.hasNextKeyTyped() && inPortalWorld) {
+                    ter.renderFrame(tempWorld);
+                    drawHUD(mouseCoordinate(), tempWorld);
+                }
+            } else {
+                char p1 = p;
+                char p2 = p;
+                while (is.possibleNextInput()) {
+                    if (portalCount == 0) {
+                        drawEndGame();
+                        char c = is.getNextKey();
+                        if (c == 'b' || c == 'B') {
+                            drawStartMenu();
+                        }
+                        break;
+                    } else if (inPortalWorld) {
+                        ter.renderFrame(tempWorld);
+                        if (p == '&') {
+                            p2 = is.getNextKey();
+                        }
+                        drawHUD(mouseCoordinate(), tempWorld);
+                        if (p2 == 'w' || p2 == 'W') {
+                            moveAvatar(tempWorld, portalAvatar[0], portalAvatar[1] + 1, portalAvatar);
+                        } else if (p2 == 'a' || p2 == 'A') {
+                            moveAvatar(tempWorld, portalAvatar[0] - 1, portalAvatar[1], portalAvatar);
+                        } else if (p2 == 's' || p2 == 'S') {
+                            moveAvatar(tempWorld, portalAvatar[0], portalAvatar[1] - 1, portalAvatar);
+                        } else if (p2 == 'd' || p2 == 'D') {
+                            moveAvatar(tempWorld, portalAvatar[0] + 1, portalAvatar[1], portalAvatar);
+                        } else if (p2 == ':') {
+                            char p3 = is.getNextKey();
+                            if (p3 == 'q' || p3 == 'Q') {
+                                inPortalWorld = false;
+                                saveGame();
+                                drawStartMenu();
+                                break outerloop;
+                            }
+                        }
+                        if (flowerCount == 0) {
+                            inPortalWorld = false;
+                            flowerCoordinates.clear();
+                            flowerCoordinates2.clear();
+                            portalCount--;
+                            avatarCo[0] = portalCo[0];
+                            avatarCo[1] = portalCo[1];
+                            drawGoingBackScreen();
+                            ter.renderFrame(getTiles());
+                            drawHUD(mouseCoordinate(), getTiles());
+                        }
+                    } else if (portalCount != 0){
+                        world[avatarCo[0]][avatarCo[1]] = avatar;
+                        avatarBfr[0] = avatarCo[0];
+                        avatarBfr[1] = avatarCo[1];
+                        ter.renderFrame(getTiles());
+                        drawHUD(mouseCoordinate(), getTiles());
+                        if (p == '&') {
+                            p1 = is.getNextKey();
+                        }
+                        if (p1 == 'w' || p1 == 'W') {
+                            moveAvatar(world, avatarCo[0], avatarCo[1] + 1, avatarCo);
+                        } else if (p1 == 'a' || p1 == 'A') {
+                            moveAvatar(world, avatarCo[0] - 1, avatarCo[1], avatarCo);
+                        } else if (p1 == 's' || p1 == 'S') {
+                            moveAvatar(world, avatarCo[0], avatarCo[1] - 1, avatarCo);
+                        } else if (p1 == 'd' || p1 == 'D') {
+                            moveAvatar(world, avatarCo[0] + 1, avatarCo[1], avatarCo);
+                        } else if (p1 == ':') {
+                            p2 = is.getNextKey();
+                            if (p2 == 'q' || p2 == 'Q') {
+                                saveGame();
+                                drawStartMenu();
+                                break outerloop;
+                            }
+                        }
+                    }
+                    while (!StdDraw.hasNextKeyTyped() && !inPortalWorld) {
+                        ter.renderFrame(getTiles());
+                        drawHUD(mouseCoordinate(), getTiles());
+                    }
+                    while (!StdDraw.hasNextKeyTyped() && inPortalWorld) {
+                        ter.renderFrame(tempWorld);
+                        drawHUD(mouseCoordinate(), tempWorld);
+                    }
+                    p = '&';
+                }
+            }
+        }
+    }
+
+    /**
+     * Method used for autograding and testing your code. The input string will be a series
+     * of characters (for example, "n123sswwdasdassadwas", "n123sss:q", "lwww". The engine should
+     * behave exactly as if the user typed these characters into the engine using
+     * interactWithKeyboard.
+     *
+     * Recall that strings ending in ":q" should cause the game to quite save. For example,
+     * if we do interactWithInputString("n123sss:q"), we expect the game to run the first
+     * 7 commands (n123sss) and then quit and save. If we then do
+     * interactWithInputString("l"), we should be back in the exact same state.
+     *
+     * In other words, running both of these:
+     *   - interactWithInputString("n123sss:q")
+     *   - interactWithInputString("lww")
+     *
+     * should yield the exact same world state as:
+     *   - interactWithInputString("n123sssww")
+     *
+     * @param input the input string to feed to your program
+     * @return the 2D TETile[][] representing the state of the world
+     */
+    public TETile[][] interactWithInputString(String input) {
+        // passed in as an argument, and return a 2D tile representation of the
+        // world that would have been drawn if the same inputs had been given
+        // to interactWithKeyboard().
+        //
+        // See proj3.byow.InputDemo for a demo of how you can make a nice clean interface
+        // that works for many different input types.
+        InputSource is = new StringInputDevice(input);
+        while (is.possibleNextInput()) {
+            char p = is.getNextKey();
+            if (p == 'n' || p == 'N') {
+                boolean stop = false;
+                while (!stop) {
+                    char p1 = is.getNextKey();
+                    if (Character.isDigit(p1)) {
+                        seed += p1;
+                    }
+                    if (p1 == 's' || p1 == 'S') {
+                        stop = true;
+                    }
+                }
+                ra = new Random(Long.parseLong(seed));
+                generateWorld();
+                generatePortals(portalCount);
+                boolean avatarPresent = false;
+                while (!avatarPresent) {
+                    int x = ra.nextInt(WIDTH);
+                    int y = ra.nextInt(HEIGHT);
+                    if (world[x][y].equals(Tileset.FLOOR)) {
+                        world[x][y] = avatar;
+                        avatarCo[0] = x;
+                        avatarCo[1] = y;
+                        avatarPresent = true;
+                    }
+                }
+            } else if (p == ':') {
+                if (is.getNextKey() == 'q' || is.getNextKey() == 'Q') {
+                    saveGame();
+                }
+            } else if (p == 'l' || p == 'L') {
+                loadGame();
+                ra = new Random(Long.parseLong(seed));
+                generateWorld();
+                generatePortals(portalCount);
+                if (inPortalWorld) {
+                    portalWorld();
+                    load = false;
+                    tempWorld[portalAvatar[0]][portalAvatar[1]] = avatar;
+                    world[avatarCo[0]][avatarCo[1]] = avatar;
+                } else {
+                    load = false;
+                    world[avatarCo[0]][avatarCo[1]] = avatar;
+                }
+            } else {
+                if (inPortalWorld) {
+                    if (p == 'w' || p == 'W') {
+                        moveAvatar(tempWorld, portalAvatar[0], portalAvatar[1] + 1, portalAvatar);
+                    } else if (p == 'a' || p == 'A') {
+                        moveAvatar(tempWorld, portalAvatar[0] - 1, portalAvatar[1], portalAvatar);
+                    } else if (p == 's' || p == 'S') {
+                        moveAvatar(tempWorld, portalAvatar[0], portalAvatar[1] - 1, portalAvatar);
+                    } else if (p == 'd' || p == 'D') {
+                        moveAvatar(tempWorld, portalAvatar[0] + 1, portalAvatar[1], portalAvatar);
+                    }
+                    if (flowerCount == 0) {
+                        inPortalWorld = false;
+                        flowerCoordinates.clear();
+                        flowerCoordinates2.clear();
+                        portalCount--;
+                        avatarCo[0] = portalCo[0];
+                        avatarCo[1] = portalCo[1];
+                    }
+                } else if (portalCount != 0) {
+                    if (p == 'w' || p == 'W') {
+                        moveAvatar(world, avatarCo[0], avatarCo[1] + 1, avatarCo);
+                    } else if (p == 'a' || p == 'A') {
+                        moveAvatar(world, avatarCo[0] - 1, avatarCo[1], avatarCo);
+                    } else if (p == 's' || p == 'S') {
+                        moveAvatar(world, avatarCo[0], avatarCo[1] - 1, avatarCo);
+                    } else if (p == 'd' || p == 'D') {
+                        moveAvatar(world, avatarCo[0] + 1, avatarCo[1], avatarCo);
+                    }
+                }
+            }
+        }
+        if (inPortalWorld) {
+            return tempWorld;
+        } else {
+            return world;
+        }
+    }
+
+    public static void main(String[] args) {
+        Engine engine = new Engine();
+
+        TERenderer ter = new TERenderer();
+        ter.initialize(WIDTH, HEIGHT);
+        ter.renderFrame(engine.interactWithInputString("lss"));}
+}
